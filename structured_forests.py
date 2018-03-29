@@ -1,6 +1,7 @@
 import sys
 import os
 import numpy as np
+import pickle as pkl
 from sklearn.ensemble import RandomForestClassifier
 from skimage import io, filters, color, morphology
 from scipy.io import loadmat
@@ -219,6 +220,15 @@ class StructuredRandomForrest(object):
 		plt.imshow(edge_map)
 		plt.show()
 		return
+
+def save_model(SRF, filename):
+	with open(filename,"wb") as handler:
+		pkl.dump(SRF,handler,protocol=pkl.HIGHEST_PROTOCOL)
+	return
+
+def load_model(filename):
+	with open(filename,"rb") as handler:
+		return pkl.load(handler)
 
 def main():
 	bsds = BSDS500(dirpath='./BSR')
