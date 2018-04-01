@@ -65,18 +65,24 @@ class StructuredRandomForrest(object):
         self.prediction_stride = kwargs['prediction_stride'] if 'prediction_stride' in kwargs.keys() else 2
         if self.feature=='gradient':
             self.dataset_generator = self.gradient_feature_label_generator
+            self.feature_generator = self.gradient_feature_generator
             self.gradient_window = kwargs['gradient_window'] if 'gradient_window' in kwargs.keys() else morphology.square
             self.gradient_window_size = kwargs['gradient_window_size'] if 'gradient_window_size' in kwargs.keys() else 4
-            self.feature_generator = self.gradient_feature_generator
         elif self.feature=='rgb':
             self.dataset_generator = self.rgb_feature_label_generator
             self.feature_generator = self.rgb_feature_generator
+        elif self.feature=='default':
+            self.dataset_generator = self.default_feature_label_generator
+            self.feature_generator = self.default_feature_generator
+            self.gradient_window = kwargs['gradient_window'] if 'gradient_window' in kwargs.keys() else morphology.square
+            self.gradient_window_size = kwargs['gradient_window_size'] if 'gradient_window_size' in kwargs.keys() else 4
         self.empty_label_sampling_factor = kwargs['empty_label_sampling_factor'] \
                                         if 'empty_label_sampling_factor' in kwargs.keys() else 0.1
         self.regular_label_sampling_factor = kwargs['regular_label_sampling_factor'] \
                                         if 'regular_label_sampling_factor' in kwargs.keys() else 1
         if self.sample_stride>self.label_width:
-            raise(RuntimeWarning('sample stride {} is bigger than label width {}'.format(self.sample_stride,self.label_width)))
+            raise(RuntimeWarning('sample stride {} is bigger than label width {}'.format(\
+                    self.sample_stride,self.label_width)))
         self.kwargs = kwargs
         self.use_PCA = use_PCA
         if self.use_PCA:
@@ -109,7 +115,7 @@ class StructuredRandomForrest(object):
             img = imgs[i]
             gt = gts[i]
             args.update([('img',img),('gt',gt)])
-            if self.feature == 'gradient':
+            if self.feature in ['gradient','default']:
                 args.update([('gradient_window',self.gradient_window),('gradient_window_size',self.gradient_window_size)])
             features, labels = self.dataset_generator(**args)
             X += features
@@ -146,7 +152,7 @@ class StructuredRandomForrest(object):
                 'patch_width':self.patch_width,
                 'label_width':self.label_width,
                 'sample_stride':self.prediction_stride}
-        if self.feature == 'gradient':
+        if self.feature in ['gradient','default']:
             args.update([('gradient_window',self.gradient_window),
                         ('gradient_window_size',self.gradient_window_size)])
         features = self.feature_generator(**args)
@@ -167,6 +173,51 @@ class StructuredRandomForrest(object):
         if imshow:
             self._imshow_edge_map(edge_map, img, groundTruth)
         return edge_map
+
+    def default_feature_label_generator(self,img, gt, patch_width, label_width,
+                                            sample_stride, gradient_window,
+                                            gradient_window_size,
+                                            empty_label_sampling_factor,
+                                            regular_label_sampling_factor
+                                            ):
+        gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
+        feat = np.concatenate((img,gradient.reshape(gradient.shape[0],gradient.shape[1],1)),axis=-1)
+        _f = []
+        _l = []
+        (_gt_c, _gt_x, _gt_y) = gt.shape
+        (_feat_x,_feat_y,_feat_c) = feat.shape
+        pad_width = int(np.ceil((patch_width-label_width)/2))
+        padded_feat = np.pad(feat,pad_width=((pad_width,pad_width),(pad_width,pad_width),(0,0)),mode='reflect')
+        for x in np.arange(start=0,stop=_gt_x-label_width+1,step=sample_stride):
+            for y in np.arange(start=0,stop=_gt_y-label_width+1,step=sample_stride):
+                for i in np.arange(start=0,stop=1,step=1):
+                    # x,y is the top left pixel of label box
+                    _iter_f = np.array(padded_feat[x:x+patch_width,y:y+patch_width,:]).flatten()
+                    _iter_l = np.array(gt[i,x:x+label_width,y:y+label_width]).flatten()
+                    rand = np.random.rand()
+                    if np.any(_iter_l):
+                        if rand < regular_label_sampling_factor:
+                            _f.append(_iter_f)
+                            _l.append(_iter_l)
+                    else:
+                        if rand < empty_label_sampling_factor:
+                            _f.append(_iter_f)
+                            _l.append(_iter_l)
+        return _f, _l
+
+    def default_feature_generator(self,img, patch_width, label_width, sample_stride,
+                                    gradient_window, gradient_window_size):
+        gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
+        feat = np.concatenate((img,gradient.reshape(gradient.shape[0],gradient.shape[1],1)),axis=-1)
+        _f = []
+        (_feat_x,_feat_y,_feat_c) = feat.shape
+        pad_width = int(np.ceil((patch_width-label_width)/2))
+        padded_feat = np.pad(feat,pad_width=((pad_width,pad_width),(pad_width,pad_width),(0,0)),mode='reflect')
+        for x in np.arange(start=0, stop=_feat_x-label_width+1, step=sample_stride):
+            for y in np.arange(start=0, stop=_feat_y-label_width+1, step=sample_stride):
+                _iter_f = np.array(padded_feat[x:x+patch_width,y:y+patch_width,:]).flatten()
+                _f.append(_iter_f)
+        return _f
 
     def gradient_feature_label_generator(self,img, gt, patch_width, label_width,
                                             sample_stride, gradient_window,
@@ -276,18 +327,18 @@ def load_model(filename):
 def main():
     bsds = BSDS500(dirpath='./BSR')
     srf = StructuredRandomForrest(n_estimators=100,
-                        max_features='auto',
+                        max_features=None,
                         max_depth=None,
                         verbose=1,
                         n_jobs=3,
-                        feature='gradient',
+                        feature='default',
                         use_PCA=True,
                         PCA_n_components=32,
                         patch_width=8,
                         label_width=4,
-                        sample_stride=4,
-                        empty_label_sampling_factor=0.01)
-    imgs, gts = bsds.get_list_of_data(bsds.train_ids[0:100])
+                        sample_stride=2,
+                        empty_label_sampling_factor=0.1)
+    imgs, gts = bsds.get_list_of_data(bsds.train_ids[10:11])
     X,Y = srf.gen_dataset(imgs, gts)
     print(X.shape)
     print(Y.shape)
