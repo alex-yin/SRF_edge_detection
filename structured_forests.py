@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import numpy as np
 import pickle as pkl
@@ -63,6 +64,7 @@ class StructuredRandomForrest(object):
         self.label_width = kwargs['label_width'] if 'label_width' in kwargs.keys() else 16
         self.sample_stride = kwargs['sample_stride'] if 'sample_stride' in kwargs.keys() else 8
         self.prediction_stride = kwargs['prediction_stride'] if 'prediction_stride' in kwargs.keys() else 2
+        self.threshold = kwargs['threshold'] if 'threshold' in kwargs.keys() else 0.2
         if self.feature=='gradient':
             self.dataset_generator = self.gradient_feature_label_generator
             self.feature_generator = self.gradient_feature_generator
@@ -170,9 +172,13 @@ class StructuredRandomForrest(object):
                 num_prediction[x:x+self.label_width,y:y+self.label_width] += np.ones((self.label_width,self.label_width))
                 label_index += 1
         num_prediction[num_prediction==0] = 1
+        normalized_edge_map = edge_map / num_prediction
+        indices = np.where(normalized_edge_map>np.mean(normalized_edge_map)*self.threshold)
+        normalized_edge_map[indices] = 1
+        normalized_edge_map[not indices] /= self.threshold
         if imshow:
-            self._imshow_edge_map(edge_map, img, groundTruth)
-        return edge_map
+            self._imshow_edge_map(normalized_edge_map, img, groundTruth)
+        return normalized_edge_map
 
     def default_feature_label_generator(self,img, gt, patch_width, label_width,
                                             sample_stride, gradient_window,
@@ -326,10 +332,10 @@ def load_model(filename):
 
 def main():
     bsds = BSDS500(dirpath='./BSR')
-    srf = StructuredRandomForrest(n_estimators=100,
-                        max_features=None,
+    srf = StructuredRandomForrest(n_estimators=10,
+                        max_features='auto',
                         max_depth=None,
-                        verbose=1,
+                        verbose=100,
                         n_jobs=3,
                         feature='default',
                         use_PCA=True,
@@ -337,8 +343,10 @@ def main():
                         patch_width=8,
                         label_width=4,
                         sample_stride=2,
+                        prediction_stride=2,
+                        threshold=0.1,
                         empty_label_sampling_factor=0.1)
-    imgs, gts = bsds.get_list_of_data(bsds.train_ids[10:11])
+    imgs, gts = bsds.get_list_of_data(bsds.train_ids[11:111])
     X,Y = srf.gen_dataset(imgs, gts)
     print(X.shape)
     print(Y.shape)
