@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import time
 import os
 import numpy as np
 import pickle as pkl
@@ -149,7 +150,7 @@ class StructuredRandomForrest(object):
         mean_score = np.mean(score)
         return mean_score
 
-    def predict_edge_map(self,img,groundTruth=None,imshow=False):
+    def predict_edge_map(self,img,groundTruth=None,imshow=False,imsave=False,fn='no_name_given.png'):
         args = {'img':img,
                 'patch_width':self.patch_width,
                 'label_width':self.label_width,
@@ -178,6 +179,10 @@ class StructuredRandomForrest(object):
         normalized_edge_map[not indices] /= self.threshold
         if imshow:
             self._imshow_edge_map(normalized_edge_map, img, groundTruth)
+        if imsave:
+            if fn[:-4] != '.png':
+                fn += '.png'
+            self._imsave_edge_map(fn, normalized_edge_map, img, groundTruth)
         return normalized_edge_map
 
     def default_feature_label_generator(self,img, gt, patch_width, label_width,
@@ -321,6 +326,21 @@ class StructuredRandomForrest(object):
         plt.show()
         return
 
+    @staticmethod
+    def _imsave_edge_map(fn, edge_map, img, gt):
+        if gt is not None:
+            fig, (ax1,ax2,ax3) = plt.subplots(1,3)
+            ax3.imshow(gt,cmap='Greys')
+            ax3.set_title('ground truth')
+        else:
+            fig, (ax1,ax2) = plt.subplots(1,2)
+        ax1.imshow(img)
+        ax1.set_title('original image')
+        ax2.imshow(edge_map,cmap='Greys')
+        ax2.set_title('SRF result')
+        plt.savefig(fn,dpi=200)
+        return
+
 def save_model(SRF, filename):
     with open(filename,"wb") as handler:
         pkl.dump(SRF,handler,protocol=pkl.HIGHEST_PROTOCOL)
@@ -335,26 +355,50 @@ def main():
     srf = StructuredRandomForrest(n_estimators=10,
                         max_features='auto',
                         max_depth=None,
-                        verbose=100,
-                        n_jobs=3,
+                        verbose=5,
+                        n_jobs=20,
                         feature='default',
                         use_PCA=True,
-                        PCA_n_components=32,
+                        PCA_n_components=64,
                         patch_width=8,
                         label_width=4,
                         sample_stride=2,
                         prediction_stride=2,
                         threshold=0.1,
-                        empty_label_sampling_factor=0.1)
-    imgs, gts = bsds.get_list_of_data(bsds.train_ids[11:111])
+                        empty_label_sampling_factor=0.3)
+    imgs, gts = bsds.get_list_of_data(bsds.train_ids[:10])
     X,Y = srf.gen_dataset(imgs, gts)
+    print("############################################")
+    print("############################################")
     print(X.shape)
     print(Y.shape)
+    print("############################################")
+    print("############################################")
     print(np.all(Y==0,axis=1).shape)
     print(np.sum(np.all(Y==0,axis=1))/len(Y))
+    start_time = time.time()
     srf.fit(X,Y)
-    print(srf.raw_score(X,Y))
-    srf.predict_edge_map(bsds.read_image(bsds.train_ids[10]),groundTruth=bsds.get_edge_map(bsds.train_ids[10])[0],imshow=True)
+    train_end = time.time()
+    train_duration = train_end - start_time
+    # print(srf.raw_score(X,Y))
+    save_dir = os.path.join('./results',time.asctime().replace(' ','_').replace(':','%'))
+    os.mkdir(save_dir)
+    srf.predict_edge_map(bsds.read_image(bsds.test_ids[0]),
+                        groundTruth=bsds.get_edge_map(bsds.test_ids[0])[0],
+                        imsave=True,
+                        fn=os.path.join(save_dir, bsds.test_ids[0].replace('/','_')))
+    # logging
+    logfile = open(os.path.join(save_dir, bsds.test_ids[0].replace('/','_')+'.log'),'a')
+    logfile.write('Start Time: {}\n'.format(time.ctime(start_time)))
+    logfile.write('Train Duration: {}\n'.format(train_duration))
+    logfile.write('End Time: {}\n'.format(time.asctime()))
+    logfile.write('n_estimators: {}\n'.format(srf.rf.n_estimators))
+    logfile.write('max_features: {}\n'.format(srf.rf.max_features))
+    logfile.write('feature: {}\n'.format(srf.feature))
+    logfile.write('use_PCA: {}\n'.format(srf.use_PCA))
+    logfile.write('number of patches: {}\n'.format(len(X)))
+    logfile.write('empty labels: {}\n'.format(np.sum(np.all(Y==0,axis=1))/len(Y)))
+    logfile.close()
     return
 
 if __name__ == '__main__':
