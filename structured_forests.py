@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import time
 import os
+import sys
 import numpy as np
 import pickle as pkl
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.decomposition import PCA
 from skimage import io, filters, color, morphology
 from scipy.io import loadmat
@@ -57,7 +58,12 @@ class StructuredRandomForrest(object):
     """
     def __init__(self,n_estimators,max_features,max_depth,verbose=100,n_jobs=3,feature='gradient',use_PCA=False,**kwargs):
         super(StructuredRandomForrest, self).__init__()
-        self.rf = RandomForestClassifier(n_estimators=n_estimators,max_features=max_features,
+        if use_PCA:
+            self.rf = RandomForestRegressor(n_estimators=n_estimators,max_features=max_features,
+                                        max_depth=max_depth,verbose=verbose,n_jobs=n_jobs,\
+                                        oob_score=True)
+        else:
+            self.rf = RandomForestClassifier(n_estimators=n_estimators,max_features=max_features,
                                         max_depth=max_depth,verbose=verbose,n_jobs=n_jobs,\
                                         oob_score=True)
         self.feature = feature
@@ -69,16 +75,20 @@ class StructuredRandomForrest(object):
         if self.feature=='gradient':
             self.dataset_generator = self.gradient_feature_label_generator
             self.feature_generator = self.gradient_feature_generator
-            self.gradient_window = kwargs['gradient_window'] if 'gradient_window' in kwargs.keys() else morphology.square
-            self.gradient_window_size = kwargs['gradient_window_size'] if 'gradient_window_size' in kwargs.keys() else 4
+            self.gradient_window = kwargs['gradient_window']\
+                    if 'gradient_window' in kwargs.keys() else morphology.square
+            self.gradient_window_size = kwargs['gradient_window_size']\
+                    if 'gradient_window_size' in kwargs.keys() else 4
         elif self.feature=='rgb':
             self.dataset_generator = self.rgb_feature_label_generator
             self.feature_generator = self.rgb_feature_generator
         elif self.feature=='default':
             self.dataset_generator = self.default_feature_label_generator
             self.feature_generator = self.default_feature_generator
-            self.gradient_window = kwargs['gradient_window'] if 'gradient_window' in kwargs.keys() else morphology.square
-            self.gradient_window_size = kwargs['gradient_window_size'] if 'gradient_window_size' in kwargs.keys() else 4
+            self.gradient_window = kwargs['gradient_window']\
+                    if 'gradient_window' in kwargs.keys() else morphology.square
+            self.gradient_window_size = kwargs['gradient_window_size']\
+                    if 'gradient_window_size' in kwargs.keys() else 4
         self.empty_label_sampling_factor = kwargs['empty_label_sampling_factor'] \
                                         if 'empty_label_sampling_factor' in kwargs.keys() else 0.1
         self.regular_label_sampling_factor = kwargs['regular_label_sampling_factor'] \
@@ -92,15 +102,13 @@ class StructuredRandomForrest(object):
             self.init_PCA()
 
     def init_PCA(self):
-        self.PCA_n_components = self.kwargs['PCA_n_components'] if 'PCA_n_components' in self.kwargs.keys() else None
-        self.PCA = PCA(n_components = self.PCA_n_components)
+        self.X_n_components = self.kwargs['X_n_components']\
+                if 'X_n_components' in self.kwargs.keys() else None
+        self.X_PCA = PCA(n_components = self.X_n_components)
+        self.Y_n_components = self.kwargs['Y_n_components']\
+                if 'Y_n_components' in self.kwargs.keys() else None
+        self.Y_PCA = PCA(n_components = self.Y_n_components)
         return
-
-    def PCA_fit_transform(self, X):
-        return self.PCA.fit_transform(X)
-
-    def PCA_transform(self, X):
-        return self.PCA.transform(X)
 
     def gen_dataset(self, imgs, gts):
         if len(imgs)!=len(gts):
@@ -124,10 +132,12 @@ class StructuredRandomForrest(object):
             X += features
             Y += labels
         if self.use_PCA:
-            print('performing principle component analysis, n_components:{}'.format(self.PCA_n_components))
-            X = self.PCA_fit_transform(X)
-        X_np = np.stack(X, axis=0)
-        Y_np = np.stack(Y, axis=0)
+            print('performing principle component analysis. X compoenents:{}, Y components:{}'\
+                                                .format(self.X_n_components, self.Y_n_components))
+            X_transformed = self.X_PCA.fit_transform(X)
+            Y_transformed = self.Y_PCA.fit_transform(Y)
+        X_np = np.stack(X_transformed, axis=0)
+        Y_np = np.stack(Y_transformed, axis=0)
         return X_np, Y_np
 
     def fit(self,X,Y):
@@ -160,8 +170,10 @@ class StructuredRandomForrest(object):
                         ('gradient_window_size',self.gradient_window_size)])
         features = self.feature_generator(**args)
         if self.use_PCA:
-            features = self.PCA_transform(features)
+            features = self.X_PCA.transform(features)
         pred_labels = np.array(self.predict(features))
+        if self.use_PCA:
+            pred_labels = self.Y_PCA.inverse_transform(pred_labels)
         struct_labels = pred_labels.reshape(len(pred_labels),self.label_width,self.label_width)
         edge_map = np.zeros((img.shape[0],img.shape[1]))
         num_prediction = np.zeros((img.shape[0],img.shape[1]))
@@ -174,9 +186,18 @@ class StructuredRandomForrest(object):
                 label_index += 1
         num_prediction[num_prediction==0] = 1
         normalized_edge_map = edge_map / num_prediction
-        indices = np.where(normalized_edge_map>np.mean(normalized_edge_map)*self.threshold)
-        normalized_edge_map[indices] = 1
-        normalized_edge_map[not indices] /= self.threshold
+        e_min = normalized_edge_map.min()
+        e_max = normalized_edge_map.max()
+        normalized_edge_map = (normalized_edge_map - e_min)/(e_max-e_min)
+        indices = np.where(normalized_edge_map > self.threshold)
+        mask = np.zeros(shape=normalized_edge_map.shape, dtype=np.bool)
+        mask[indices] = 1
+        if self.use_PCA:
+            normalized_edge_map[mask] = 1
+            normalized_edge_map[~mask] = 0
+        else:
+            normalized_edge_map[mask] = 1
+            normalized_edge_map[~mask] /= self.threshold
         if imshow:
             self._imshow_edge_map(normalized_edge_map, img, groundTruth)
         if imsave:
@@ -288,7 +309,6 @@ class StructuredRandomForrest(object):
                     # x,y is the top left pixel of label box
                     _iter_l = np.array(gt[i,x:x+label_width,y:y+label_width]).flatten()
                     _iter_p = np.array(padded_img[x:x+patch_width,y:y+patch_width,:]).flatten()
-
                     rand = np.random.rand()
                     if np.any(_l):
                         if rand < regular_label_sampling_factor:
@@ -356,17 +376,18 @@ def main():
                         max_features='auto',
                         max_depth=None,
                         verbose=5,
-                        n_jobs=20,
+                        n_jobs=3,
                         feature='default',
                         use_PCA=True,
-                        PCA_n_components=64,
+                        X_n_components=64,
+                        Y_n_components=16,
                         patch_width=8,
                         label_width=4,
                         sample_stride=2,
                         prediction_stride=2,
-                        threshold=0.1,
+                        threshold=0.5,
                         empty_label_sampling_factor=0.3)
-    imgs, gts = bsds.get_list_of_data(bsds.train_ids[:10])
+    imgs, gts = bsds.get_list_of_data(bsds.train_ids[10:11])
     X,Y = srf.gen_dataset(imgs, gts)
     print("############################################")
     print("############################################")
@@ -380,24 +401,33 @@ def main():
     srf.fit(X,Y)
     train_end = time.time()
     train_duration = train_end - start_time
-    # print(srf.raw_score(X,Y))
+    raw_score = srf.raw_score(X,Y)
     save_dir = os.path.join('./results',time.asctime().replace(' ','_').replace(':','%'))
     os.mkdir(save_dir)
-    srf.predict_edge_map(bsds.read_image(bsds.test_ids[0]),
-                        groundTruth=bsds.get_edge_map(bsds.test_ids[0])[0],
-                        imsave=True,
-                        fn=os.path.join(save_dir, bsds.test_ids[0].replace('/','_')))
+    srf.predict_edge_map(bsds.read_image(bsds.train_ids[10]),
+                        groundTruth=bsds.get_edge_map(bsds.train_ids[10])[0],
+                        imshow=True)
+                        #  imsave=True,
+                        #  fn=os.path.join(save_dir, bsds.test_ids[0].replace('/','_')))
+    sys.exit()
     # logging
     logfile = open(os.path.join(save_dir, bsds.test_ids[0].replace('/','_')+'.log'),'a')
-    logfile.write('Start Time: {}\n'.format(time.ctime(start_time)))
-    logfile.write('Train Duration: {}\n'.format(train_duration))
-    logfile.write('End Time: {}\n'.format(time.asctime()))
-    logfile.write('n_estimators: {}\n'.format(srf.rf.n_estimators))
-    logfile.write('max_features: {}\n'.format(srf.rf.max_features))
-    logfile.write('feature: {}\n'.format(srf.feature))
-    logfile.write('use_PCA: {}\n'.format(srf.use_PCA))
-    logfile.write('number of patches: {}\n'.format(len(X)))
-    logfile.write('empty labels: {}\n'.format(np.sum(np.all(Y==0,axis=1))/len(Y)))
+    logfile.write('Start Time:\t\t {}\n'.format(time.ctime(start_time)))
+    logfile.write('Train Duration:\t\t {}\n'.format(train_duration))
+    logfile.write('End Time:\t\t {}\n'.format(time.asctime()))
+    logfile.write('n_estimators:\t\t {}\n'.format(srf.rf.n_estimators))
+    logfile.write('max_features:\t\t {}\n'.format(srf.rf.max_features))
+    logfile.write('feature:\t\t {}\n'.format(srf.feature))
+    logfile.write('use_PCA:\t\t {}\n'.format(srf.use_PCA))
+    logfile.write('X_n_components:\t\t {}\n'.format(srf.X_PCA.n_components))
+    logfile.write('Y_n_components:\t\t {}\n'.format(srf.Y_PCA.n_components))
+    logfile.write('patch_width:\t\t {}\n'.format(patch_width))
+    logfile.write('label_width:\t\t {}\n'.format(label_width))
+    logfile.write('sample_stride:\t\t {}\n'.format(sample_stride))
+    logfile.write('prediction_stride:\t\t {}\n'.format(prediction_stride))
+    logfile.write('raw_score:\t\t {}\n'.format(raw_score))
+    logfile.write('number of patches:\t\t {}\n'.format(len(X)))
+    logfile.write('empty labels:\t\t {}\n'.format(np.sum(np.all(Y==0,axis=1))/len(Y)))
     logfile.close()
     return
 
