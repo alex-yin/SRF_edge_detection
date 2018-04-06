@@ -1,13 +1,14 @@
-import time
 import os
 import sys
+import time
 import numpy as np
 import pickle as pkl
+import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.decomposition import PCA
 from skimage import io, filters, color, morphology
 from scipy.io import loadmat
-import matplotlib.pyplot as plt
+
 
 class BSDS500(object):
     """docstring for BSDS500"""
@@ -22,15 +23,6 @@ class BSDS500(object):
         self.test_ids = self._list_ids(self.image_path,'test')
         self.val_ids = self._list_ids(self.image_path,'val')
         self.penguin_ids = ['train/106020','train/106025']
-
-    @staticmethod
-    def _list_ids(dir,set_name):
-        ids = []
-        files = os.listdir(os.path.join(dir,set_name))
-        for fn in files:
-            if(fn[-4:]=='.jpg'):
-                ids.append(os.path.join(set_name, fn[:-4]))
-        return ids
 
     def read_image(self, id):
         return io.imread(os.path.join(self.image_path,id+'.jpg'))
@@ -48,6 +40,15 @@ class BSDS500(object):
             imgs.append(self.read_image(id))
             gts.append(self.get_edge_map(id))
         return imgs, gts
+
+    @staticmethod
+    def _list_ids(dir,set_name):
+        ids = []
+        files = os.listdir(os.path.join(dir,set_name))
+        for fn in files:
+            if(fn[-4:]=='.jpg'):
+                ids.append(os.path.join(set_name, fn[:-4]))
+        return ids
 
 
 class StructuredRandomForrest(object):
@@ -189,7 +190,7 @@ class StructuredRandomForrest(object):
         if imsave:
             if fn[:-4] != '.png':
                 fn += '.png'
-            self._imsave_edge_map(fn, processed_edge_map, img, groundTruth)
+            self.imsave_edge_map(fn, processed_edge_map, img, groundTruth)
         return processed_edge_map
 
     def edge_map_processing(self, edge_map, num_prediction):
@@ -368,12 +369,14 @@ class StructuredRandomForrest(object):
         return _p
 
     def set_working_dir(self, path):
-        os.mkdir(path)
+        if not os.path.isdir(path):
+            os.mkdir(path)
         self.working_dir = path
         return
 
-    def imsave_edge_map(self, fn, edge_map, img, gt):
-        path = os.path.join(self.working_dir,fn)
+    def imsave_edge_map(self, filename, edge_map, img, gt):
+        filename = filename.replace('/','_')
+        path = os.path.join(self.working_dir,filename)
         if gt is not None:
             fig, (ax1,ax2,ax3) = plt.subplots(1,3)
             ax3.imshow(gt,cmap='Greys')
@@ -384,16 +387,19 @@ class StructuredRandomForrest(object):
         ax1.set_title('original image')
         ax2.imshow(edge_map,cmap='Greys')
         ax2.set_title('SRF result')
-        plt.savefig(path+'.png',dpi=200)
+        plt.savefig(path, dpi=400, bbox_inches='tight')
         return
 
     def save_model(self, SRF, filename):
+        filename = filename.replace('/','_')
         if self.working_dir is None:
             raise(RuntimeWarning('please set working dir'))
             path = os.path.join(os.getcwd(),filename)
         else:
             path = os.path.join(self.working_dir,filename)
-        with open(path+'.pkl',"wb") as handler:
+        if path[-4:]!='.pkl':
+            path+='.pkl'
+        with open(path,"wb") as handler:
             pkl.dump(SRF,handler,protocol=pkl.HIGHEST_PROTOCOL)
         return
 
@@ -420,21 +426,22 @@ def save_log(srf,start_time,train_duration,raw_score,num_patches,empty_labels):
     # logging
     logfile = open(os.path.join(srf.working_dir,'session_info.log'),'a')
     logfile.write('Start Time:\t\t {}\n'.format(time.ctime(start_time)))
+    logfile.write('End Time:\t\t {}\n'.format(time.ctime(start_time)))
     logfile.write('Train Duration:\t\t {}\n'.format(train_duration))
     logfile.write('n_estimators:\t\t {}\n'.format(srf.rf.n_estimators))
     logfile.write('max_features:\t\t {}\n'.format(srf.rf.max_features))
     logfile.write('feature:\t\t {}\n'.format(srf.feature))
     logfile.write('use_PCA:\t\t {}\n'.format(srf.use_PCA))
     logfile.write('threshold:\t\t {}\n'.format(srf.threshold))
-    logfile.write('intermediate_mapping:\t\t {}\n'.format(srf.intermediate_mapping))
+    logfile.write('intermediate_mapping:\t {}\n'.format(srf.intermediate_mapping))
     logfile.write('X_n_components:\t\t {}\n'.format(srf.X_PCA.n_components))
     logfile.write('Y_n_components:\t\t {}\n'.format(srf.Y_PCA.n_components))
     logfile.write('patch_width:\t\t {}\n'.format(srf.patch_width))
     logfile.write('label_width:\t\t {}\n'.format(srf.label_width))
     logfile.write('sample_stride:\t\t {}\n'.format(srf.sample_stride))
-    logfile.write('prediction_stride:\t\t {}\n'.format(srf.prediction_stride))
+    logfile.write('prediction_stride:\t {}\n'.format(srf.prediction_stride))
     logfile.write('raw_score:\t\t {}\n'.format(raw_score))
-    logfile.write('number of patches:\t\t {}\n'.format(num_patches))
+    logfile.write('number of patches:\t {}\n'.format(num_patches))
     logfile.write('empty labels:\t\t {}\n'.format(empty_labels))
     logfile.close()
     return
@@ -478,9 +485,9 @@ def main():
     srf.set_working_dir(save_dir)
     srf.predict_edge_map(bsds.read_image(bsds.train_ids[10]),
                         groundTruth=bsds.get_edge_map(bsds.train_ids[10])[0],
-                        imshow=True)
-                        #  imsave=True,
-                        #  fn=os.path.join(save_dir, bsds.test_ids[0].replace('/','_')))
+                        #  imshow=True)
+                        imsave=True,
+                        fn=bsds.train_ids[10])
     save_log(srf=srf,
             start_time=start_time,
             train_duration=train_duration,
