@@ -72,6 +72,7 @@ class StructuredRandomForrest(object):
         self.sample_stride = kwargs['sample_stride'] if 'sample_stride' in kwargs.keys() else 8
         self.prediction_stride = kwargs['prediction_stride'] if 'prediction_stride' in kwargs.keys() else 2
         self.threshold = kwargs['threshold'] if 'threshold' in kwargs.keys() else 0.2
+        self.epsilon = kwargs['epsilon'] if 'epsilon' in kwargs.keys() else 1e-30
         if self.feature=='gradient':
             self.dataset_generator = self.gradient_feature_label_generator
             self.feature_generator = self.gradient_feature_generator
@@ -90,9 +91,9 @@ class StructuredRandomForrest(object):
             self.gradient_window_size = kwargs['gradient_window_size']\
                     if 'gradient_window_size' in kwargs.keys() else 4
         self.empty_label_sampling_factor = kwargs['empty_label_sampling_factor'] \
-                                        if 'empty_label_sampling_factor' in kwargs.keys() else 0.1
+                    if 'empty_label_sampling_factor' in kwargs.keys() else 0.1
         self.regular_label_sampling_factor = kwargs['regular_label_sampling_factor'] \
-                                        if 'regular_label_sampling_factor' in kwargs.keys() else 1
+                    if 'regular_label_sampling_factor' in kwargs.keys() else 1
         if self.sample_stride>self.label_width:
             raise(RuntimeWarning('sample stride {} is bigger than label width {}'.format(\
                     self.sample_stride,self.label_width)))
@@ -117,32 +118,24 @@ class StructuredRandomForrest(object):
         indices = np.arange(len(imgs))
         X = []
         Y = []
-        args = {'patch_width':self.patch_width,
-                'label_width':self.label_width,
-                'sample_stride':self.sample_stride,
-                'empty_label_sampling_factor':self.empty_label_sampling_factor,
-                'regular_label_sampling_factor':self.regular_label_sampling_factor}
         for i in indices:
             print('processing image {}/{}'.format(i+1,len(indices)))
             img = imgs[i]
             gt = gts[i]
-            args.update([('img',img),('gt',gt)])
-            if self.feature in ['gradient','default']:
-                args.update([('gradient_window',self.gradient_window),('gradient_window_size',self.gradient_window_size)])
-            features, labels = self.dataset_generator(**args)
+            features, labels = self.dataset_generator(img, gt)
             X += features
             Y += labels
-        # TODO y to z transform
-        # if self.intermediate_mapping:
-        # call y to z transform here
+        if self.intermediate_mapping:
+            Y = self.y_to_z_mapping(Y)
+            print(len(Y[0]))
         if self.use_PCA:
             print('performing principle component analysis. X compoenents:{}, Y components:{}'\
                                                 .format(self.X_n_components, self.Y_n_components))
-            X_transformed = self.X_PCA.fit_transform(X)
-            Y_transformed = self.Y_PCA.fit_transform(Y)
-        X_np = np.stack(X_transformed, axis=0)
-        Y_np = np.stack(Y_transformed, axis=0)
-        return X_np, Y_np
+            X = self.X_PCA.fit_transform(X)
+            Y = self.Y_PCA.fit_transform(Y)
+        X = np.stack(X, axis=0)
+        Y = np.stack(Y, axis=0)
+        return X, Y
 
     def fit(self,X,Y):
         return self.rf.fit(X,Y)
@@ -165,23 +158,19 @@ class StructuredRandomForrest(object):
         return mean_score
 
     def predict_edge_map(self,img,groundTruth=None,imshow=False,imsave=False,fn='no_name_given.png'):
-        args = {'img':img,
-                'patch_width':self.patch_width,
-                'label_width':self.label_width,
-                'sample_stride':self.prediction_stride}
-        if self.feature in ['gradient','default']:
-            args.update([('gradient_window',self.gradient_window),
-                        ('gradient_window_size',self.gradient_window_size)])
-        features = self.feature_generator(**args)
+        features = self.feature_generator(img)
+        # apply PCA to X
         if self.use_PCA:
             features = self.X_PCA.transform(features)
         # predict
         pred_labels = np.array(self.predict(features))
+        # apply PCA to Y
         if self.use_PCA:
             pred_labels = self.Y_PCA.inverse_transform(pred_labels)
-        # TODO z to y transform
-        # if self.intermediate_mapping:
-        #   z to y transform
+        # z to y mapping if using intermediate mapping
+        if self.intermediate_mapping:
+            pred_labels = pred_labels[:,:self.label_width**2]
+        # recontruct structured labels
         struct_labels = pred_labels.reshape(len(pred_labels),self.label_width,self.label_width)
         edge_map = np.zeros((img.shape[0],img.shape[1]))
         num_prediction = np.zeros((img.shape[0],img.shape[1]))
@@ -193,32 +182,34 @@ class StructuredRandomForrest(object):
                 num_prediction[x:x+self.label_width,y:y+self.label_width] += \
                         np.ones((self.label_width,self.label_width))
                 label_index += 1
-        num_prediction[num_prediction==0] = 1
-        normalized_edge_map = edge_map / num_prediction
-        e_min = normalized_edge_map.min()
-        e_max = normalized_edge_map.max()
-        normalized_edge_map = (normalized_edge_map - e_min)/(e_max-e_min)
-        indices = np.where(normalized_edge_map > self.threshold)
-        mask = np.zeros(shape=normalized_edge_map.shape, dtype=np.bool)
-        mask[indices] = 1
-        if self.use_PCA:
-            normalized_edge_map[mask] = 1
-            normalized_edge_map[~mask] = 0
-        else:
-            normalized_edge_map[mask] = 1
-            normalized_edge_map[~mask] /= self.threshold
+        # process raw prediction
+        processed_edge_map = self.edge_map_processing(edge_map, num_prediction)
         if imshow:
-            self._imshow_edge_map(normalized_edge_map, img, groundTruth)
+            self._imshow_edge_map(processed_edge_map, img, groundTruth)
         if imsave:
             if fn[:-4] != '.png':
                 fn += '.png'
-            self._imsave_edge_map(fn, normalized_edge_map, img, groundTruth)
-        return normalized_edge_map
+            self._imsave_edge_map(fn, processed_edge_map, img, groundTruth)
+        return processed_edge_map
+
+    def edge_map_processing(self, edge_map, num_prediction):
+        num_prediction[num_prediction==0] = 1
+        normalized_edge_map = edge_map / num_prediction
+        _max = normalized_edge_map.max()
+        _min = normalized_edge_map.min()
+        normalized_edge_map = (normalized_edge_map-_min) / (_max-_min)
+        ll_numerator = normalized_edge_map * np.log(1- normalized_edge_map + self.epsilon)
+        ll_denominator = ll_numerator + (1-normalized_edge_map) * np.log(normalized_edge_map + self.epsilon)
+        ll_edge_map = ll_numerator / ll_denominator
+        clean_edge_map = np.zeros(shape=ll_edge_map.shape)
+        indices = np.where(ll_edge_map>self.threshold)
+        clean_edge_map[indices] = 1
+        return clean_edge_map
 
     def y_to_z_mapping(self, Y):
         """create mapping from strucutured label Y to intermeidate space Z"""
         if len(Y[0])!=self.label_width**2:
-            print("input labels have different dimension")
+            print('input labels have different dimension')
         Z = []
         for label in Y:
             z_label = np.array(label)
@@ -227,12 +218,15 @@ class StructuredRandomForrest(object):
             Z.append(z_label)
         return Z
 
-    def default_feature_label_generator(self, img, gt, patch_width, label_width,
-                                            sample_stride, gradient_window,
-                                            gradient_window_size,
-                                            empty_label_sampling_factor,
-                                            regular_label_sampling_factor
-                                            ):
+    def default_feature_label_generator(self, img, gt):
+        patch_width = self.patch_width
+        label_width = self.label_width
+        sample_stride = self.sample_stride
+        gradient_window = self.gradient_window
+        gradient_window_size  = self.gradient_window_size
+        empty_label_sampling_factor = self.empty_label_sampling_factor
+        regular_label_sampling_factor = self.regular_label_sampling_factor
+
         gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
         feat = np.concatenate((img,gradient.reshape(gradient.shape[0],gradient.shape[1],1)),axis=-1)
         _f = []
@@ -258,8 +252,13 @@ class StructuredRandomForrest(object):
                             _l.append(_iter_l)
         return _f, _l
 
-    def default_feature_generator(self,img, patch_width, label_width, sample_stride,
-                                    gradient_window, gradient_window_size):
+    def default_feature_generator(self, img):
+        patch_width = self.patch_width
+        label_width = self.label_width
+        sample_stride = self.sample_stride
+        gradient_window = self.gradient_window
+        gradient_window_size  = self.gradient_window_size
+
         gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
         feat = np.concatenate((img,gradient.reshape(gradient.shape[0],gradient.shape[1],1)),axis=-1)
         _f = []
@@ -272,12 +271,15 @@ class StructuredRandomForrest(object):
                 _f.append(_iter_f)
         return _f
 
-    def gradient_feature_label_generator(self,img, gt, patch_width, label_width,
-                                            sample_stride, gradient_window,
-                                            gradient_window_size,
-                                            empty_label_sampling_factor,
-                                            regular_label_sampling_factor
-                                            ):
+    def gradient_feature_label_generator(self, img, gt):
+        patch_width = self.patch_width
+        label_width = self.label_width
+        sample_stride = self.sample_stride
+        gradient_window = self.gradient_window
+        gradient_window_size  = self.gradient_window_size
+        empty_label_sampling_factor = self.empty_label_sampling_factor
+        regular_label_sampling_factor = self.regular_label_sampling_factor
+
         gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
         _f = []
         _l = []
@@ -302,8 +304,13 @@ class StructuredRandomForrest(object):
                             _l.append(_iter_l)
         return _f, _l
 
-    def gradient_feature_generator(self,img, patch_width, label_width, sample_stride,
-                                    gradient_window, gradient_window_size):
+    def gradient_feature_generator(self, img):
+        patch_width = self.patch_width
+        label_width = self.label_width
+        sample_stride = self.sample_stride
+        gradient_window = self.gradient_window
+        gradient_window_size  = self.gradient_window_size
+
         gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
         _f = []
         (_grad_x,_grad_y) = gradient.shape
@@ -315,9 +322,13 @@ class StructuredRandomForrest(object):
                 _f.append(_iter_f)
         return _f
 
-    def rgb_feature_label_generator(self,img, gt, patch_width, label_width,
-                                    sample_stride, empty_label_sampling_factor,
-                                    regular_label_sampling_factor):
+    def rgb_feature_label_generator(self,img, gt):
+        patch_width = self.patch_width
+        label_width = self.label_width
+        sample_stride = self.sample_stride
+        empty_label_sampling_factor = self.empty_label_sampling_factor
+        regular_label_sampling_factor = self.regular_label_sampling_factor
+
         _p = []
         _l = []
         (_gt_c, _gt_x, _gt_y) = gt.shape
@@ -341,7 +352,11 @@ class StructuredRandomForrest(object):
                             _p.append(_iter_p)
         return _p, _l
 
-    def rgb_feature_generator(self,img,patch_width,label_width,sample_stride):
+    def rgb_feature_generator(self, img):
+        patch_width = self.patch_width
+        label_width = self.label_width
+        sample_stride = self.sample_stride
+
         _p = []
         (_img_x,_img_y,_img_c) = img.shape
         pad_width = int(np.ceil((patch_width-label_width)/2))
@@ -351,6 +366,36 @@ class StructuredRandomForrest(object):
                 _iter_p = np.array(padded_img[x:x+patch_width,y:y+patch_width,:]).flatten()
                 _p.append(_iter_p)
         return _p
+
+    def set_working_dir(self, path):
+        os.mkdir(path)
+        self.working_dir = path
+        return
+
+    def imsave_edge_map(self, fn, edge_map, img, gt):
+        path = os.path.join(self.working_dir,fn)
+        if gt is not None:
+            fig, (ax1,ax2,ax3) = plt.subplots(1,3)
+            ax3.imshow(gt,cmap='Greys')
+            ax3.set_title('ground truth')
+        else:
+            fig, (ax1,ax2) = plt.subplots(1,2)
+        ax1.imshow(img)
+        ax1.set_title('original image')
+        ax2.imshow(edge_map,cmap='Greys')
+        ax2.set_title('SRF result')
+        plt.savefig(path+'.png',dpi=200)
+        return
+
+    def save_model(self, SRF, filename):
+        if self.working_dir is None:
+            raise(RuntimeWarning('please set working dir'))
+            path = os.path.join(os.getcwd(),filename)
+        else:
+            path = os.path.join(self.working_dir,filename)
+        with open(path+'.pkl',"wb") as handler:
+            pkl.dump(SRF,handler,protocol=pkl.HIGHEST_PROTOCOL)
+        return
 
     @staticmethod
     def _imshow_edge_map(edge_map, img, gt):
@@ -367,39 +412,43 @@ class StructuredRandomForrest(object):
         plt.show()
         return
 
-    @staticmethod
-    def _imsave_edge_map(fn, edge_map, img, gt):
-        if gt is not None:
-            fig, (ax1,ax2,ax3) = plt.subplots(1,3)
-            ax3.imshow(gt,cmap='Greys')
-            ax3.set_title('ground truth')
-        else:
-            fig, (ax1,ax2) = plt.subplots(1,2)
-        ax1.imshow(img)
-        ax1.set_title('original image')
-        ax2.imshow(edge_map,cmap='Greys')
-        ax2.set_title('SRF result')
-        plt.savefig(fn,dpi=200)
-        return
-
-def save_model(SRF, filename):
-    with open(filename,"wb") as handler:
-        pkl.dump(SRF,handler,protocol=pkl.HIGHEST_PROTOCOL)
-    return
-
 def load_model(filename):
     with open(filename,"rb") as handler:
         return pkl.load(handler)
 
+def save_log(srf,start_time,train_duration,raw_score,num_patches,empty_labels):
+    # logging
+    logfile = open(os.path.join(srf.working_dir,'session_info.log'),'a')
+    logfile.write('Start Time:\t\t {}\n'.format(time.ctime(start_time)))
+    logfile.write('Train Duration:\t\t {}\n'.format(train_duration))
+    logfile.write('n_estimators:\t\t {}\n'.format(srf.rf.n_estimators))
+    logfile.write('max_features:\t\t {}\n'.format(srf.rf.max_features))
+    logfile.write('feature:\t\t {}\n'.format(srf.feature))
+    logfile.write('use_PCA:\t\t {}\n'.format(srf.use_PCA))
+    logfile.write('threshold:\t\t {}\n'.format(srf.threshold))
+    logfile.write('intermediate_mapping:\t\t {}\n'.format(srf.intermediate_mapping))
+    logfile.write('X_n_components:\t\t {}\n'.format(srf.X_PCA.n_components))
+    logfile.write('Y_n_components:\t\t {}\n'.format(srf.Y_PCA.n_components))
+    logfile.write('patch_width:\t\t {}\n'.format(srf.patch_width))
+    logfile.write('label_width:\t\t {}\n'.format(srf.label_width))
+    logfile.write('sample_stride:\t\t {}\n'.format(srf.sample_stride))
+    logfile.write('prediction_stride:\t\t {}\n'.format(srf.prediction_stride))
+    logfile.write('raw_score:\t\t {}\n'.format(raw_score))
+    logfile.write('number of patches:\t\t {}\n'.format(num_patches))
+    logfile.write('empty labels:\t\t {}\n'.format(empty_labels))
+    logfile.close()
+    return
+
 def main():
     bsds = BSDS500(dirpath='./BSR')
     srf = StructuredRandomForrest(n_estimators=10,
-                        max_features='auto',
+                        max_features=None,
                         max_depth=None,
                         verbose=5,
                         n_jobs=3,
                         feature='default',
                         use_PCA=True,
+                        intermediate_mapping=True,
                         X_n_components=64,
                         Y_n_components=16,
                         patch_width=8,
@@ -423,33 +472,21 @@ def main():
     train_end = time.time()
     train_duration = train_end - start_time
     raw_score = srf.raw_score(X,Y)
-    save_dir = os.path.join('./results',time.asctime().replace(' ','_').replace(':','%'))
-    #  os.mkdir(save_dir)
+    asctime = time.asctime().replace('  ',' ').replace(' ','_').replace(':','%')
+    ascdate = asctime[:10]+asctime[-4:]
+    save_dir = os.path.join('./results',ascdate)
+    srf.set_working_dir(save_dir)
     srf.predict_edge_map(bsds.read_image(bsds.train_ids[10]),
                         groundTruth=bsds.get_edge_map(bsds.train_ids[10])[0],
                         imshow=True)
                         #  imsave=True,
                         #  fn=os.path.join(save_dir, bsds.test_ids[0].replace('/','_')))
-    sys.exit()
-    # logging
-    logfile = open(os.path.join(save_dir, bsds.test_ids[0].replace('/','_')+'.log'),'a')
-    logfile.write('Start Time:\t\t {}\n'.format(time.ctime(start_time)))
-    logfile.write('Train Duration:\t\t {}\n'.format(train_duration))
-    logfile.write('End Time:\t\t {}\n'.format(time.asctime()))
-    logfile.write('n_estimators:\t\t {}\n'.format(srf.rf.n_estimators))
-    logfile.write('max_features:\t\t {}\n'.format(srf.rf.max_features))
-    logfile.write('feature:\t\t {}\n'.format(srf.feature))
-    logfile.write('use_PCA:\t\t {}\n'.format(srf.use_PCA))
-    logfile.write('X_n_components:\t\t {}\n'.format(srf.X_PCA.n_components))
-    logfile.write('Y_n_components:\t\t {}\n'.format(srf.Y_PCA.n_components))
-    logfile.write('patch_width:\t\t {}\n'.format(patch_width))
-    logfile.write('label_width:\t\t {}\n'.format(label_width))
-    logfile.write('sample_stride:\t\t {}\n'.format(sample_stride))
-    logfile.write('prediction_stride:\t\t {}\n'.format(prediction_stride))
-    logfile.write('raw_score:\t\t {}\n'.format(raw_score))
-    logfile.write('number of patches:\t\t {}\n'.format(len(X)))
-    logfile.write('empty labels:\t\t {}\n'.format(np.sum(np.all(Y==0,axis=1))/len(Y)))
-    logfile.close()
+    save_log(srf=srf,
+            start_time=start_time,
+            train_duration=train_duration,
+            raw_score=raw_score,
+            num_patches=len(X),
+            empty_labels=np.sum(np.all(Y==0,axis=1))/len(Y))
     return
 
 if __name__ == '__main__':
