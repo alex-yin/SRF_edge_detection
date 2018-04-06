@@ -390,7 +390,7 @@ class StructuredRandomForrest(object):
         plt.savefig(path, dpi=400, bbox_inches='tight')
         return
 
-    def save_model(self, SRF, filename):
+    def save_model(self, filename):
         filename = filename.replace('/','_')
         if self.working_dir is None:
             raise(RuntimeWarning('please set working dir'))
@@ -400,7 +400,7 @@ class StructuredRandomForrest(object):
         if path[-4:]!='.pkl':
             path+='.pkl'
         with open(path,"wb") as handler:
-            pkl.dump(SRF,handler,protocol=pkl.HIGHEST_PROTOCOL)
+            pkl.dump(self, handler, protocol=pkl.HIGHEST_PROTOCOL)
         return
 
     @staticmethod
@@ -449,7 +449,7 @@ def save_log(srf,start_time,train_duration,raw_score,num_patches,empty_labels):
 def main():
     bsds = BSDS500(dirpath='./BSR')
     srf = StructuredRandomForrest(n_estimators=10,
-                        max_features=None,
+                        max_features='auto',
                         max_depth=None,
                         verbose=5,
                         n_jobs=3,
@@ -464,36 +464,35 @@ def main():
                         prediction_stride=2,
                         threshold=0.5,
                         empty_label_sampling_factor=0.3)
-    imgs, gts = bsds.get_list_of_data(bsds.train_ids[10:11])
+    imgs, gts = bsds.get_list_of_data(bsds.train_ids)
+
     X,Y = srf.gen_dataset(imgs, gts)
-    print("############################################")
-    print("############################################")
+
     print(X.shape)
     print(Y.shape)
-    print("############################################")
-    print("############################################")
-    print(np.all(Y==0,axis=1).shape)
-    print(np.sum(np.all(Y==0,axis=1))/len(Y))
+
     start_time = time.time()
     srf.fit(X,Y)
     train_end = time.time()
     train_duration = train_end - start_time
+
     raw_score = srf.raw_score(X,Y)
     asctime = time.asctime().replace('  ',' ').replace(' ','_').replace(':','%')
     ascdate = asctime[:10]+asctime[-4:]
     save_dir = os.path.join('./results',ascdate)
     srf.set_working_dir(save_dir)
-    srf.predict_edge_map(bsds.read_image(bsds.train_ids[10]),
-                        groundTruth=bsds.get_edge_map(bsds.train_ids[10])[0],
+    srf.predict_edge_map(bsds.read_image(bsds.test_ids[0]),
+                        groundTruth=bsds.get_edge_map(bsds.test_ids[0])[0],
                         #  imshow=True)
                         imsave=True,
-                        fn=bsds.train_ids[10])
+                        fn=bsds.test_ids[10])
     save_log(srf=srf,
             start_time=start_time,
             train_duration=train_duration,
             raw_score=raw_score,
             num_patches=len(X),
             empty_labels=np.sum(np.all(Y==0,axis=1))/len(Y))
+    srf.save_model(ascdate+'_v1')
     return
 
 if __name__ == '__main__':
