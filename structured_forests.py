@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import time
 import os
 import sys
@@ -56,7 +55,8 @@ class StructuredRandomForrest(object):
     Structured Random Forrest
     input x and output y are structured (matrix form)
     """
-    def __init__(self,n_estimators,max_features,max_depth,verbose=100,n_jobs=3,feature='gradient',use_PCA=False,**kwargs):
+    def __init__(self, n_estimators, max_features, max_depth, verbose=100, n_jobs=3,\
+                feature='gradient', use_PCA=False, intermediate_mapping=False, **kwargs):
         super(StructuredRandomForrest, self).__init__()
         if use_PCA:
             self.rf = RandomForestRegressor(n_estimators=n_estimators,max_features=max_features,
@@ -100,6 +100,7 @@ class StructuredRandomForrest(object):
         self.use_PCA = use_PCA
         if self.use_PCA:
             self.init_PCA()
+        self.intermediate_mapping = intermediate_mapping
 
     def init_PCA(self):
         self.X_n_components = self.kwargs['X_n_components']\
@@ -131,6 +132,9 @@ class StructuredRandomForrest(object):
             features, labels = self.dataset_generator(**args)
             X += features
             Y += labels
+        # TODO y to z transform
+        # if self.intermediate_mapping:
+        # call y to z transform here
         if self.use_PCA:
             print('performing principle component analysis. X compoenents:{}, Y components:{}'\
                                                 .format(self.X_n_components, self.Y_n_components))
@@ -171,9 +175,13 @@ class StructuredRandomForrest(object):
         features = self.feature_generator(**args)
         if self.use_PCA:
             features = self.X_PCA.transform(features)
+        # predict
         pred_labels = np.array(self.predict(features))
         if self.use_PCA:
             pred_labels = self.Y_PCA.inverse_transform(pred_labels)
+        # TODO z to y transform
+        # if self.intermediate_mapping:
+        #   z to y transform
         struct_labels = pred_labels.reshape(len(pred_labels),self.label_width,self.label_width)
         edge_map = np.zeros((img.shape[0],img.shape[1]))
         num_prediction = np.zeros((img.shape[0],img.shape[1]))
@@ -182,7 +190,8 @@ class StructuredRandomForrest(object):
         for x in np.arange(start=0,stop=_img_x-self.label_width+1,step=self.prediction_stride):
             for y in np.arange(start=0,stop=_img_y-self.label_width+1,step=self.prediction_stride):
                 edge_map[x:x+self.label_width,y:y+self.label_width] += struct_labels[label_index]
-                num_prediction[x:x+self.label_width,y:y+self.label_width] += np.ones((self.label_width,self.label_width))
+                num_prediction[x:x+self.label_width,y:y+self.label_width] += \
+                        np.ones((self.label_width,self.label_width))
                 label_index += 1
         num_prediction[num_prediction==0] = 1
         normalized_edge_map = edge_map / num_prediction
@@ -206,7 +215,19 @@ class StructuredRandomForrest(object):
             self._imsave_edge_map(fn, normalized_edge_map, img, groundTruth)
         return normalized_edge_map
 
-    def default_feature_label_generator(self,img, gt, patch_width, label_width,
+    def y_to_z_mapping(self, Y):
+        """create mapping from strucutured label Y to intermeidate space Z"""
+        if len(Y[0])!=self.label_width**2:
+            print("input labels have different dimension")
+        Z = []
+        for label in Y:
+            z_label = np.array(label)
+            for i in range(self.label_width**2):
+                z_label = np.concatenate((z_label, (label[i+1:]==label[i]).astype(int)))
+            Z.append(z_label)
+        return Z
+
+    def default_feature_label_generator(self, img, gt, patch_width, label_width,
                                             sample_stride, gradient_window,
                                             gradient_window_size,
                                             empty_label_sampling_factor,
@@ -403,7 +424,7 @@ def main():
     train_duration = train_end - start_time
     raw_score = srf.raw_score(X,Y)
     save_dir = os.path.join('./results',time.asctime().replace(' ','_').replace(':','%'))
-    os.mkdir(save_dir)
+    #  os.mkdir(save_dir)
     srf.predict_edge_map(bsds.read_image(bsds.train_ids[10]),
                         groundTruth=bsds.get_edge_map(bsds.train_ids[10])[0],
                         imshow=True)
