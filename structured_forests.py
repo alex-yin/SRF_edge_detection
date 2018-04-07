@@ -1,5 +1,4 @@
 import os
-import sys
 import time
 import numpy as np
 import pickle as pkl
@@ -451,8 +450,8 @@ def main():
     srf = StructuredRandomForrest(n_estimators=10,
                         max_features='auto',
                         max_depth=None,
-                        verbose=5,
-                        n_jobs=3,
+                        verbose=100,
+                        n_jobs=25,
                         feature='default',
                         use_PCA=True,
                         intermediate_mapping=True,

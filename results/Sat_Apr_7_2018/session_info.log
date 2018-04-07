@@ -1,0 +1,18 @@
+Start Time:		 Sat Apr  7 13:16:30 2018
+End Time:		 Sat Apr  7 13:16:30 2018
+Train Duration:		 1436.117722272873
+n_estimators:		 10
+max_features:		 auto
+feature:		 default
+use_PCA:		 True
+threshold:		 0.5
+intermediate_mapping:	 True
+X_n_components:		 64
+Y_n_components:		 16
+patch_width:		 8
+label_width:		 4
+sample_stride:		 2
+prediction_stride:	 2
+raw_score:		 0.8466736969033916
+number of patches:	 2700064
+empty labels:		 0.0
