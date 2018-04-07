@@ -188,21 +188,27 @@ class StructuredRandomForrest(object):
             self._imshow_edge_map(processed_edge_map, img, groundTruth)
         if imsave:
             if fn[:-4] != '.png':
-                fn += '_unprocessed.png'
-            self.imsave_edge_map(fn, edge_map, img, groundTruth)
+                fn += '.png'
+            self.imsave_edge_map(fn, processed_edge_map, img, groundTruth)
         return processed_edge_map
 
     def edge_map_processing(self, edge_map, num_prediction):
         num_prediction[num_prediction==0] = 1
         normalized_edge_map = edge_map / num_prediction
+
         _max = normalized_edge_map.max()
         _min = normalized_edge_map.min()
         normalized_edge_map = (normalized_edge_map-_min) / (_max-_min)
-        ll_numerator = normalized_edge_map * np.log(1- normalized_edge_map + self.epsilon)
+        smoothed_edge_map = filters.gaussian(normalized_edge_map, multichannel=True)
+
+        ll_numerator = smoothed_edge_map * np.log(1- smoothed_edge_map + self.epsilon)
         ll_denominator = ll_numerator + (1-normalized_edge_map) * np.log(normalized_edge_map + self.epsilon)
         ll_edge_map = ll_numerator / ll_denominator
+
+        sorted_ll = np.sort(ll_edge_map.flatten())
         clean_edge_map = np.zeros(shape=ll_edge_map.shape)
-        indices = np.where(ll_edge_map>self.threshold)
+        threshold = sorted_ll[int(sorted_ll.size*0.95)]
+        indices = np.where(ll_edge_map > threshold)
         clean_edge_map[indices] = 1
         return clean_edge_map
 
