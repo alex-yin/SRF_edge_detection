@@ -188,8 +188,8 @@ class StructuredRandomForrest(object):
             self._imshow_edge_map(processed_edge_map, img, groundTruth)
         if imsave:
             if fn[:-4] != '.png':
-                fn += '.png'
-            self.imsave_edge_map(fn, processed_edge_map, img, groundTruth)
+                fn += '_unprocessed.png'
+            self.imsave_edge_map(fn, edge_map, img, groundTruth)
         return processed_edge_map
 
     def edge_map_processing(self, edge_map, num_prediction):
