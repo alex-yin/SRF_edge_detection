@@ -6,7 +6,7 @@ import pickle as pkl
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.decomposition import PCA
-from skimage import io, filters, color, morphology
+from skimage import io, filters, color, morphology, feature
 from scipy.io import loadmat
 
 import structured_forests
@@ -38,7 +38,6 @@ srf = structured_forests.load_model('./results/Sun_Apr_8_2018/Sun_Apr_8_2018_v2.
 #  plt.imshow(edge_map,cmap='Greys')
 #  plt.title('StructuredRandomForrest result')
 #  plt.savefig('./figs/srf_result.png', dpi=400, bbox_inches='tight')
-
 #  sys.exit()
 for i in range(10):
     start = time.time()
