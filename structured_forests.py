@@ -468,7 +468,7 @@ def main():
                         sample_stride=2,
                         prediction_stride=2,
                         threshold=0.5,
-                        empty_label_sampling_factor=0.3)
+                        empty_label_sampling_factor=1)
     imgs, gts = bsds.get_list_of_data(bsds.train_ids)
 
     X,Y = srf.gen_dataset(imgs, gts)
@@ -487,17 +487,17 @@ def main():
     save_dir = os.path.join('./results',ascdate)
     srf.set_working_dir(save_dir)
     srf.predict_edge_map(bsds.read_image(bsds.test_ids[0]),
-                        groundTruth=bsds.get_edge_map(bsds.test_ids[0])[0],
+                        groundTruth=bsds.get_edge_map(bsds.test_ids[0])[0])#,
                         #  imshow=True)
-                        imsave=True,
-                        fn=bsds.test_ids[10])
+                        #  imsave=True,
+                        #  fn=bsds.test_ids[10])
     save_log(srf=srf,
             start_time=start_time,
             train_duration=train_duration,
             raw_score=raw_score,
             num_patches=len(X),
             empty_labels=np.sum(np.all(Y==0,axis=1))/len(Y))
-    srf.save_model(ascdate+'_v1')
+    srf.save_model(ascdate+'_v2')
     return
 
 if __name__ == '__main__':
