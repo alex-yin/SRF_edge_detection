@@ -27,7 +27,7 @@ prewitt_result = prewitt(img)
 canny_result = canny(img)
 
 for _str,result in [('sobel',sobel_result),('scharr',scharr_result),('prewitt',prewitt_result),('canny',canny_result)]:
-    plt.imshow(sobel_result,cmap='Greys')
+    plt.imshow(result,cmap='Greys')
     plt.title(_str+' result')
     plt.show()
 
