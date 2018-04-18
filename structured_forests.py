@@ -234,6 +234,7 @@ class StructuredRandomForrest(object):
         regular_label_sampling_factor = self.regular_label_sampling_factor
 
         gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
+        gradient = self._normalize_gradient(gradient)
         feat = np.concatenate((img,gradient.reshape(gradient.shape[0],gradient.shape[1],1)),axis=-1)
         _f = []
         _l = []
@@ -266,6 +267,7 @@ class StructuredRandomForrest(object):
         gradient_window_size  = self.gradient_window_size
 
         gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
+        gradient = self._normalize_gradient(gradient)
         feat = np.concatenate((img,gradient.reshape(gradient.shape[0],gradient.shape[1],1)),axis=-1)
         _f = []
         (_feat_x,_feat_y,_feat_c) = feat.shape
@@ -287,6 +289,7 @@ class StructuredRandomForrest(object):
         regular_label_sampling_factor = self.regular_label_sampling_factor
 
         gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
+        gradient = self._normalize_gradient(gradient)
         _f = []
         _l = []
         (_gt_c, _gt_x, _gt_y) = gt.shape
@@ -318,6 +321,7 @@ class StructuredRandomForrest(object):
         gradient_window_size  = self.gradient_window_size
 
         gradient = filters.rank.gradient(color.rgb2grey(img),gradient_window(gradient_window_size))
+        gradient = self._normalize_gradient(gradient)
         _f = []
         (_grad_x,_grad_y) = gradient.shape
         pad_width = int(np.ceil((patch_width-label_width)/2))
@@ -407,6 +411,13 @@ class StructuredRandomForrest(object):
         with open(path,"wb") as handler:
             pkl.dump(self, handler, protocol=pkl.HIGHEST_PROTOCOL)
         return
+
+
+    @staticmethod
+    def _normalize_gradient(gradient):
+        _max = gradient.max()
+        _min = gredient.min()
+        return (gradient-_min)/(_max-_min)
 
     @staticmethod
     def _imshow_edge_map(edge_map, img, gt):

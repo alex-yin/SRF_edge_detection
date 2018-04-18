@@ -18,7 +18,7 @@ bsds = BSDS500(dirpath='./BSR')
 #  scharr = filters.scharr
 #  prewitt = filters.prewitt
 
-#  img = bsds.read_image('train/236017')
+#  img = bsds.read_image('test/107014')
 #  img = color.rgb2gray(img)
 #  sobel_result = sobel(img)
 #  scharr_result = scharr(img)
@@ -30,15 +30,15 @@ bsds = BSDS500(dirpath='./BSR')
 #      plt.savefig('./figs/'+_str+'_result.png', dpi=400, bbox_inches='tight')
 
 srf = structured_forests.load_model('./results/Sun_Apr_8_2018/Sun_Apr_8_2018_v2.pkl')
-#  edge_map = srf.predict_edge_map(bsds.read_image('train/236017'),
-#                      groundTruth=bsds.get_edge_map('train/236017')[0],
-#                      imshow=True)
-#                      #  imsave=True,
-#                      #  fn=bsds.test_ids[i]+'_floating_threshold')
+edge_map = srf.predict_edge_map(bsds.read_image('test/107014'),
+                    groundTruth=bsds.get_edge_map('test/107014')[0],
+                    imshow=True)
+                    #  imsave=True,
+                    #  fn=bsds.test_ids[i]+'_floating_threshold')
 #  plt.imshow(edge_map,cmap='Greys')
 #  plt.title('StructuredRandomForrest result')
 #  plt.savefig('./figs/srf_result.png', dpi=400, bbox_inches='tight')
-#  sys.exit()
+sys.exit()
 for i in range(10):
     start = time.time()
     edge_map = srf.predict_edge_map(bsds.read_image(bsds.test_ids[i]),
