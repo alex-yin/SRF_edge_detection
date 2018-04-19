@@ -199,18 +199,19 @@ class StructuredRandomForrest(object):
         _max = normalized_edge_map.max()
         _min = normalized_edge_map.min()
         normalized_edge_map = (normalized_edge_map-_min) / (_max-_min)
-        smoothed_edge_map = filters.gaussian(normalized_edge_map, multichannel=True)
+        #  smoothed_edge_map = filters.gaussian(normalized_edge_map, multichannel=True)
 
-        ll_numerator = smoothed_edge_map * np.log(1- smoothed_edge_map + self.epsilon)
+        ll_numerator = normalized_edge_map * np.log(1- normalized_edge_map + self.epsilon)
         ll_denominator = ll_numerator + (1-normalized_edge_map) * np.log(normalized_edge_map + self.epsilon)
         ll_edge_map = ll_numerator / ll_denominator
 
         sorted_ll = np.sort(ll_edge_map.flatten())
         clean_edge_map = np.zeros(shape=ll_edge_map.shape)
-        threshold = sorted_ll[int(sorted_ll.size*0.95)]
+        threshold = sorted_ll[int(sorted_ll.size*0.93)]
         indices = np.where(ll_edge_map > threshold)
         clean_edge_map[indices] = 1
-        return clean_edge_map
+        skeleton_edge_map = morphology.skeletonize(clean_edge_map)
+        return skeleton_edge_map
 
     def y_to_z_mapping(self, Y):
         """create mapping from strucutured label Y to intermeidate space Z"""
