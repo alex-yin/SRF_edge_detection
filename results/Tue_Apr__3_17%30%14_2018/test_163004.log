@@ -1,9 +1,0 @@
-Start Time: Tue Apr  3 17:30:00 2018
-Train Duration: 13.76521897315979
-End Time: Tue Apr  3 17:30:15 2018
-n_estimators: 10
-max_features: auto
-feature: default
-use_PCA: True
-number of patches: 134539
-empty labels: 0.7811192293684359

@@ -416,17 +416,18 @@ class StructuredRandomForrest(object):
     @staticmethod
     def _normalize_gradient(gradient):
         _max = gradient.max()
-        _min = gredient.min()
-        return (gradient-_min)/(_max-_min)
+        _min = gradient.min()
+        return ((gradient-_min)/(_max-_min)*255).astype(np.uint8)
 
     @staticmethod
     def _imshow_edge_map(edge_map, img, gt):
-        if gt is not None:
-            fig, (ax1,ax2,ax3) = plt.subplots(1,3)
-            ax3.imshow(gt,cmap='Greys')
-            ax3.set_title('ground truth')
-        else:
-            fig, (ax1,ax2) = plt.subplots(1,2)
+        fig, (ax1,ax2,ax3) = plt.subplots(1,3)
+
+        sobel = filters.sobel
+        sobel_result = sobel(color.rgb2gray(img))
+
+        ax3.imshow(sobel_result,cmap='Greys')
+        ax3.set_title('sobel result')
         ax1.imshow(img)
         ax1.set_title('original image')
         ax2.imshow(edge_map,cmap='Greys')
@@ -468,7 +469,7 @@ def main():
                         max_features='auto',
                         max_depth=None,
                         verbose=100,
-                        n_jobs=25,
+                        n_jobs=10,
                         feature='default',
                         use_PCA=True,
                         intermediate_mapping=True,
@@ -478,8 +479,9 @@ def main():
                         label_width=4,
                         sample_stride=2,
                         prediction_stride=2,
+                        gradient_window_size=8,
                         threshold=0.5,
-                        empty_label_sampling_factor=1)
+                        empty_label_sampling_factor=0.5)
     imgs, gts = bsds.get_list_of_data(bsds.train_ids)
 
     X,Y = srf.gen_dataset(imgs, gts)
@@ -508,7 +510,7 @@ def main():
             raw_score=raw_score,
             num_patches=len(X),
             empty_labels=np.sum(np.all(Y==0,axis=1))/len(Y))
-    srf.save_model(ascdate+'_v2')
+    srf.save_model(ascdate+'_v3')
     return
 
 if __name__ == '__main__':

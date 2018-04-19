@@ -29,7 +29,7 @@ bsds = BSDS500(dirpath='./BSR')
 #      plt.title(_str+' result')
 #      plt.savefig('./figs/'+_str+'_result.png', dpi=400, bbox_inches='tight')
 
-srf = structured_forests.load_model('./results/Sun_Apr_8_2018/Sun_Apr_8_2018_v2.pkl')
+srf = structured_forests.load_model('./results/Wed_Apr_182018/Wed_Apr_182018_v3.pkl')
 edge_map = srf.predict_edge_map(bsds.read_image('test/107014'),
                     groundTruth=bsds.get_edge_map('test/107014')[0],
                     imshow=True)
@@ -38,13 +38,13 @@ edge_map = srf.predict_edge_map(bsds.read_image('test/107014'),
 #  plt.imshow(edge_map,cmap='Greys')
 #  plt.title('StructuredRandomForrest result')
 #  plt.savefig('./figs/srf_result.png', dpi=400, bbox_inches='tight')
-sys.exit()
+#  sys.exit()
 for i in range(10):
     start = time.time()
     edge_map = srf.predict_edge_map(bsds.read_image(bsds.test_ids[i]),
                         groundTruth=bsds.get_edge_map(bsds.test_ids[i])[0],
                         #  imshow=True)
                         imsave=True,
-                        fn=bsds.test_ids[i]+'_floating_threshold')
+                        fn=bsds.test_ids[i])
     end = time.time()
     print('latency: {:.4f}s'.format(end - start))
