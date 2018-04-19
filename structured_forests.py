@@ -207,11 +207,11 @@ class StructuredRandomForrest(object):
 
         sorted_ll = np.sort(ll_edge_map.flatten())
         clean_edge_map = np.zeros(shape=ll_edge_map.shape)
-        threshold = sorted_ll[int(sorted_ll.size*0.93)]
+        threshold = sorted_ll[int(sorted_ll.size*0.95)]
         indices = np.where(ll_edge_map > threshold)
         clean_edge_map[indices] = 1
         skeleton_edge_map = morphology.skeletonize(clean_edge_map)
-        return skeleton_edge_map
+        return clean_edge_map
 
     def y_to_z_mapping(self, Y):
         """create mapping from strucutured label Y to intermeidate space Z"""
@@ -387,12 +387,13 @@ class StructuredRandomForrest(object):
     def imsave_edge_map(self, filename, edge_map, img, gt):
         filename = filename.replace('/','_')
         path = os.path.join(self.working_dir,filename)
-        if gt is not None:
-            fig, (ax1,ax2,ax3) = plt.subplots(1,3)
-            ax3.imshow(gt,cmap='Greys')
-            ax3.set_title('ground truth')
-        else:
-            fig, (ax1,ax2) = plt.subplots(1,2)
+        fig, (ax1,ax2,ax3) = plt.subplots(1,3)
+
+        sobel = filters.sobel
+        sobel_result = sobel(color.rgb2gray(img))
+
+        ax3.imshow(sobel_result,cmap='Greys')
+        ax3.set_title('sobel result')
         ax1.imshow(img)
         ax1.set_title('original image')
         ax2.imshow(edge_map,cmap='Greys')

@@ -37,7 +37,7 @@ edge_map = srf.predict_edge_map(bsds.read_image('test/107014'),
                     #  fn=bsds.test_ids[i]+'_floating_threshold')
 #  plt.imshow(edge_map,cmap='Greys')
 #  plt.title('StructuredRandomForrest result')
-#  plt.savefig('./figs/srf_result.png', dpi=400, bbox_inches='tight')
+#  plt.savefig('./figs/srf_result_thin_edge.png', dpi=400, bbox_inches='tight')
 #  sys.exit()
 srf.set_working_dir('./results/Wed_Apr_18_2018')
 for i in range(10):
@@ -46,6 +46,6 @@ for i in range(10):
                         groundTruth=bsds.get_edge_map(bsds.test_ids[i])[0],
                         #  imshow=True)
                         imsave=True,
-                        fn=bsds.test_ids[i]+'_thinning')
+                        fn=bsds.test_ids[i])
     end = time.time()
     print('latency: {:.4f}s'.format(end - start))
