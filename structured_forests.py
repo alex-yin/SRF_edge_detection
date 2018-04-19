@@ -211,7 +211,7 @@ class StructuredRandomForrest(object):
         indices = np.where(ll_edge_map > threshold)
         clean_edge_map[indices] = 1
         skeleton_edge_map = morphology.skeletonize(clean_edge_map)
-        return clean_edge_map
+        return skeleton_edge_map
 
     def y_to_z_mapping(self, Y):
         """create mapping from strucutured label Y to intermeidate space Z"""

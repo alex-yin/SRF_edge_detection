@@ -46,6 +46,6 @@ for i in range(10):
                         groundTruth=bsds.get_edge_map(bsds.test_ids[i])[0],
                         #  imshow=True)
                         imsave=True,
-                        fn=bsds.test_ids[i])
+                        fn=bsds.test_ids[i]+'_thin_edge')
     end = time.time()
     print('latency: {:.4f}s'.format(end - start))
